@@ -320,7 +320,7 @@ MIT License - 자유롭게 사용, 수정, 배포 가능합니다.
 ## 📞 지원 및 문의
 
 - **이슈 제보**: [GitHub Issues](https://github.com/Callijisu/youth-policy-recommender/issues)
-- **이메일**: contact@youth-policy.kr
+- **이메일**: callijisu@gmail.com
 - **문서**: [API 문서](./docs/API.md)
 
 ---
