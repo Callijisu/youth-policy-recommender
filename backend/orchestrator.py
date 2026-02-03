@@ -164,18 +164,16 @@ class AgentOrchestrator:
                     # DB에서 성공적으로 조회된 경우, Agent3용 형식으로 변환
                     policies_data = self._convert_policies_for_agent3(policies_result["policies"])
                 else:
-                    # DB 조회 실패 시 더미 정책 사용
-                    print("⚠️ DB에서 정책 조회 실패, 더미 데이터 사용")
-                    policies_data = self._get_dummy_policies()
+                    step2.fail(policies_result.get("error", "정책 정보 조회 실패"))
+                    return self._create_error_response(
+                        session_id, "정책 정보를 가져올 수 없습니다.", step2.error_message
+                    )
 
                 step2.complete({"policies_count": len(policies_data), "policies": policies_data})
 
             except Exception as e:
                 step2.fail(f"Agent2 오류: {str(e)}")
-                # Agent2 실패 시에도 더미 데이터로 계속 진행
-                policies_data = self._get_dummy_policies()
-                step2.complete({"policies_count": len(policies_data), "policies": policies_data})
-                print(f"⚠️ Agent2 실패, 더미 데이터로 계속 진행: {e}")
+                return self._create_error_response(session_id, "정책 조회 중 오류가 발생했습니다.", str(e))
 
             # Step 3: Agent 3 - 매칭 및 점수 계산
             step3 = self.processing_steps[2]
@@ -271,75 +269,30 @@ class AgentOrchestrator:
             )
 
     def _convert_policies_for_agent3(self, policies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Agent2의 정책 데이터를 Agent3용 형식으로 변환"""
+        """Agent2의 정책 데이터를 Agent3용 형식으로 변환 (실제 DB 데이터 사용)"""
         converted_policies = []
 
         for policy in policies:
-            # Agent3가 기대하는 필드로 변환
+            # Agent3가 기대하는 필드로 변환 - 실제 DB 값 사용
             converted_policy = {
                 "policy_id": policy.get("policy_id"),
                 "title": policy.get("title"),
                 "category": policy.get("category"),
-                "target_age_min": 18,  # 기본값 (실제로는 DB에서 가져와야 함)
-                "target_age_max": 39,  # 기본값
-                "target_regions": ["전국"],  # 기본값
-                "target_employment": ["구직자", "재직자", "학생"],  # 기본값
-                "target_income_max": None,  # 제한 없음으로 기본 설정
+                "target_age_min": policy.get("target_age_min"),  # None이면 Agent3에서 제한 없음으로 처리
+                "target_age_max": policy.get("target_age_max"),  # None이면 Agent3에서 제한 없음으로 처리
+                "target_regions": policy.get("target_regions", []),  # 빈 리스트면 Agent3에서 전국으로 처리
+                "target_employment": policy.get("target_employment", []),  # 빈 리스트면 Agent3에서 제한 없음으로 처리
+                "target_income_max": policy.get("target_income_max"),  # None이면 제한 없음
                 "benefit": policy.get("benefit", ""),
-                "budget_max": None,
+                "budget_max": policy.get("budget_max"),
                 "deadline": policy.get("deadline"),
-                "application_url": policy.get("website_url", "")
+                "application_url": policy.get("application_url", "")
             }
             converted_policies.append(converted_policy)
 
         return converted_policies
 
-    def _get_dummy_policies(self) -> List[Dict[str, Any]]:
-        """더미 정책 데이터 반환"""
-        return [
-            {
-                "policy_id": "JOB_001",
-                "title": "청년 창업 지원금",
-                "category": "창업",
-                "target_age_min": 18,
-                "target_age_max": 39,
-                "target_regions": ["전국"],
-                "target_employment": ["구직자", "자영업"],
-                "target_income_max": 10000,
-                "benefit": "최대 5천만원 지원",
-                "budget_max": 5000,
-                "deadline": "2024년 12월 31일",
-                "application_url": "https://startup.go.kr"
-            },
-            {
-                "policy_id": "FIN_001",
-                "title": "청년희망적금",
-                "category": "금융",
-                "target_age_min": 19,
-                "target_age_max": 34,
-                "target_regions": ["전국"],
-                "target_employment": ["재직자", "구직자"],
-                "target_income_max": 3600,
-                "benefit": "월 10만원 적립시 정부지원금 10만원",
-                "budget_max": 240,
-                "deadline": "2024년 12월 31일",
-                "application_url": "https://finlife.or.kr"
-            },
-            {
-                "policy_id": "HOU_001",
-                "title": "청년 주택 지원",
-                "category": "주거",
-                "target_age_min": 19,
-                "target_age_max": 34,
-                "target_regions": ["전국"],
-                "target_employment": ["재직자", "구직자"],
-                "target_income_max": 6000,
-                "benefit": "전세자금 최대 2억원",
-                "budget_max": 20000,
-                "deadline": "연중 상시",
-                "application_url": "https://hf.go.kr"
-            }
-        ]
+
 
     def _create_steps_summary(self) -> List[Dict[str, Any]]:
         """처리 단계 요약 생성"""
@@ -404,7 +357,7 @@ class AgentOrchestrator:
                 "created_at": datetime.now()
             }
 
-            collection = self.mongo_handler.db["recommendation_history"]
+            collection = self.mongo_handler.database["recommendation_history"]
             result = collection.insert_one(history_data)
 
             print(f"✅ 추천 이력 저장 완료: {result.inserted_id}")

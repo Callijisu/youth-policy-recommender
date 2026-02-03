@@ -24,6 +24,7 @@ from core.security import (
 
 # MongoDB 핸들러 및 Agent 임포트
 from database.mongo_handler import get_mongodb_handler
+from scheduler import get_scheduler
 
 # 설정 로드
 settings = get_settings()
@@ -44,12 +45,21 @@ async def lifespan(app: FastAPI):
         if mongo_handler and mongo_handler.is_connected:
             setup_performance_optimizations(mongo_handler)
             api_logger.info("시스템 초기화 완료")
+            
+            # 정책 자동 갱신 스케줄러 시작
+            scheduler = get_scheduler()
+            scheduler.start()
     except Exception as e:
         api_logger.error(f"시스템 초기화 실패: {e}")
 
     yield
 
     # 종료 이벤트
+    try:
+        scheduler = get_scheduler()
+        scheduler.stop()
+    except:
+        pass
     api_logger.info("시스템 종료")
 
 # FastAPI 앱 생성
@@ -315,6 +325,32 @@ async def health_check():
     return health_status
 
 
+# 스케줄러 관련 API
+@app.get(
+    "/api/scheduler/status",
+    tags=["시스템 관리"],
+    summary="스케줄러 상태 조회",
+    description="정책 자동 갱신 스케줄러의 상태를 조회합니다."
+)
+async def get_scheduler_status():
+    """스케줄러 상태 조회"""
+    scheduler = get_scheduler()
+    return scheduler.get_status()
+
+
+@app.post(
+    "/api/scheduler/refresh",
+    tags=["시스템 관리"],
+    summary="정책 수동 갱신",
+    description="온통청년 API에서 최신 정책 데이터를 수동으로 갱신합니다."
+)
+async def manual_refresh_policies():
+    """정책 데이터 수동 갱신"""
+    scheduler = get_scheduler()
+    result = await scheduler.refresh_policies()
+    return result
+
+
 # API 엔드포인트들
 @app.post(
     "/api/profile",
@@ -472,29 +508,10 @@ async def get_user_history(user_id: str = Path(..., description="조회할 사�
     """추천 이력 조회"""
     try:
         if not mongo_handler or not mongo_handler.is_connected:
-            # DB가 연결되지 않은 경우 더미 데이터 반환
-            return {
-                "success": True,
-                "user_id": user_id,
-                "history": [
-                    {
-                        "date": "2024-01-15T10:30:00Z",
-                        "session_id": "session_001",
-                        "recommended_policies": 5,
-                        "avg_score": 78.5,
-                        "top_category": "창업"
-                    },
-                    {
-                        "date": "2024-01-10T15:45:00Z",
-                        "session_id": "session_002",
-                        "recommended_policies": 3,
-                        "avg_score": 82.1,
-                        "top_category": "주거"
-                    }
-                ],
-                "total_sessions": 2,
-                "message": "추천 이력 조회 완료 (로컬 모드)"
-            }
+            raise HTTPException(
+                status_code=503,
+                detail="데이터베이스에 연결되지 않았습니다."
+            )
 
         # 실제 DB에서 조회
         history_collection = mongo_handler.get_collection("recommendation_history")
@@ -580,29 +597,11 @@ async def get_policies(
 
             return policy_items
         else:
-            # Agent2 실패 시 더미 데이터 반환
-            dummy_policies = [
-                PolicyItem(
-                    id="policy_001",
-                    title="청년 창업 지원금",
-                    description="만 18~39세 청년 창업자 대상 최대 5천만원 지원",
-                    category="창업"
-                ),
-                PolicyItem(
-                    id="policy_002",
-                    title="청년 주택 구입 지원",
-                    description="무주택 청년 대상 주택 구입 자금 저리 대출",
-                    category="주거"
-                ),
-                PolicyItem(
-                    id="policy_003",
-                    title="청년 취업 성공 패키지",
-                    description="구직자 대상 취업 상담 및 훈련비 지원",
-                    category="일자리"
-                )
-            ]
-
-            return dummy_policies
+            # Agent2 실패 시 에러 반환
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "정책 목록을 조회할 수 없습니다.")
+            )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"정책 조회 중 오류가 발생했습니다: {str(e)}")
@@ -706,72 +705,30 @@ async def match_policies(request: MatchRequest):
         policies_result = agent2.get_policies_from_db()
 
         if not policies_result.get("success"):
-            # Agent2 실패 시 더미 정책 데이터 사용
-            dummy_policies = [
-                {
-                    "policy_id": "JOB_001",
-                    "title": "청년 창업 지원금",
-                    "category": "창업",
-                    "target_age_min": 18,
-                    "target_age_max": 39,
-                    "target_regions": ["전국"],
-                    "target_employment": ["구직자", "자영업"],
-                    "target_income_max": 10000,
-                    "benefit": "최대 5천만원 지원",
-                    "budget_max": 5000,
-                    "deadline": "2024년 12월 31일",
-                    "application_url": "https://startup.go.kr"
-                },
-                {
-                    "policy_id": "FIN_001",
-                    "title": "청년희망적금",
-                    "category": "금융",
-                    "target_age_min": 19,
-                    "target_age_max": 34,
-                    "target_regions": ["전국"],
-                    "target_employment": ["재직자", "구직자"],
-                    "target_income_max": 3600,
-                    "benefit": "월 10만원 적립시 정부지원금 10만원",
-                    "budget_max": 240,
-                    "deadline": "2024년 12월 31일",
-                    "application_url": "https://finlife.or.kr"
-                },
-                {
-                    "policy_id": "HOU_001",
-                    "title": "청년 주택 지원",
-                    "category": "주거",
-                    "target_age_min": 19,
-                    "target_age_max": 34,
-                    "target_regions": ["전국"],
-                    "target_employment": ["재직자", "구직자"],
-                    "target_income_max": 6000,
-                    "benefit": "전세자금 최대 2억원",
-                    "budget_max": 20000,
-                    "deadline": "연중 상시",
-                    "application_url": "https://hf.go.kr"
-                }
-            ]
-            policies_data = dummy_policies
-        else:
-            # DB에서 조회된 정책을 Agent3용 형식으로 변환
-            policies_data = []
-            for policy in policies_result.get("policies", []):
-                # Agent2의 PolicySummary를 Agent3용 정책 데이터로 변환
-                policy_data = {
-                    "policy_id": policy.get("policy_id"),
-                    "title": policy.get("title"),
-                    "category": policy.get("category"),
-                    "target_age_min": 18,  # 기본값 (실제로는 DB에서 가져와야 함)
-                    "target_age_max": 39,  # 기본값
-                    "target_regions": ["전국"],  # 기본값
-                    "target_employment": ["구직자", "재직자"],  # 기본값
-                    "target_income_max": None,  # 제한 없음
-                    "benefit": policy.get("benefit", ""),
-                    "budget_max": None,
-                    "deadline": policy.get("deadline"),
-                    "application_url": ""
-                }
-                policies_data.append(policy_data)
+            raise HTTPException(
+                status_code=500,
+                detail=policies_result.get("error", "정책 데이터를 조회할 수 없습니다.")
+            )
+        
+        # DB에서 조회된 정책을 Agent3용 형식으로 변환
+        policies_data = []
+        for policy in policies_result.get("policies", []):
+            # Agent2의 PolicySummary를 Agent3용 정책 데이터로 변환
+            policy_data = {
+                "policy_id": policy.get("policy_id"),
+                "title": policy.get("title"),
+                "category": policy.get("category"),
+                "target_age_min": 18,  # 기본값 (실제로는 DB에서 가져와야 함)
+                "target_age_max": 39,  # 기본값
+                "target_regions": ["전국"],  # 기본값
+                "target_employment": ["구직자", "재직자"],  # 기본값
+                "target_income_max": None,  # 제한 없음
+                "benefit": policy.get("benefit", ""),
+                "budget_max": None,
+                "deadline": policy.get("deadline"),
+                "application_url": ""
+            }
+            policies_data.append(policy_data)
 
         # Agent3로 매칭 수행
         matching_results = agent3.match_policies(

@@ -21,6 +21,10 @@ const StepBasic = () => {
       newErrors.region = "거주하시는 지역을 선택해주세요.";
     }
 
+    if (userProfile.income === '' || userProfile.income === null) {
+      newErrors.income = "연 소득을 입력해주세요 (없으면 0).";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -42,10 +46,28 @@ const StepBasic = () => {
         onChange={(e) => {
           const val = e.target.value.slice(0, 4);
           setProfile('age', val);
-          if(errors.age) setErrors({...errors, age: ''});
+          if (errors.age) setErrors({ ...errors, age: '' });
         }}
         error={errors.age}
       />
+
+      <div className="mb-6">
+        <Input
+          label="연 소득 (단위: 만원)"
+          type="number"
+          placeholder="예) 0 또는 3000"
+          value={userProfile.income}
+          onChange={(e) => {
+            const val = e.target.value;
+            setProfile('income', val);
+            if (errors.income) setErrors({ ...errors, income: '' });
+          }}
+          error={errors.income}
+        />
+        <p className="text-xs text-gray-400 mt-1 ml-1">
+          * 소득이 없으면 0을 입력해주세요.
+        </p>
+      </div>
 
       <div className="flex flex-col mb-8 w-full">
         <label className="text-sm font-semibold text-gray-700 mb-1.5 ml-1">현재 거주지</label>
@@ -55,15 +77,27 @@ const StepBasic = () => {
             value={userProfile.region}
             onChange={(e) => {
               setProfile('region', e.target.value);
-              setErrors({...errors, region: ''});
+              setErrors({ ...errors, region: '' });
             }}
           >
             <option value="" disabled>지역을 선택해주세요</option>
             <option value="서울">서울</option>
-            <option value="경기">경기</option>
-            <option value="인천">인천</option>
             <option value="부산">부산</option>
-            {/* 필요한 지역 추가 */}
+            <option value="대구">대구</option>
+            <option value="인천">인천</option>
+            <option value="광주">광주</option>
+            <option value="대전">대전</option>
+            <option value="울산">울산</option>
+            <option value="세종">세종</option>
+            <option value="경기">경기</option>
+            <option value="강원">강원</option>
+            <option value="충북">충북</option>
+            <option value="충남">충남</option>
+            <option value="전북">전북</option>
+            <option value="전남">전남</option>
+            <option value="경북">경북</option>
+            <option value="경남">경남</option>
+            <option value="제주">제주</option>
           </select>
         </div>
         {errors.region && <span className="text-xs text-red-500 mt-1 ml-1">🚨 {errors.region}</span>}

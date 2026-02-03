@@ -4,7 +4,7 @@ Agent 1: 사용자 프로필 수집 및 검증 에이전트
 """
 
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
@@ -81,10 +81,18 @@ class UserProfile(BaseModel):
         ...,
         description="고용 상태"
     )
-    interest: Optional[InterestEnum] = Field(
+    interest: Optional[Union[InterestEnum, str]] = Field(
         None,
         description="관심 분야 (선택 사항)"
     )
+
+    @field_validator('interest', mode='before')
+    @classmethod
+    def validate_interest(cls, v):
+        """관심 분야 전처리 (빈 문자열 -> None)"""
+        if v == "" or v is None:
+            return None
+        return v
 
     @field_validator('age')
     @classmethod
@@ -177,20 +185,39 @@ class Agent1:
             # 3. 고유 프로필 ID 생성
             profile_id = self._generate_profile_id()
 
-            # 4. MongoDB에 저장 (옵션)
+            # 4. MongoDB에 저장
             db_save_result = None
-            if self.db_handler:
+            if self.use_database:
+                if not self.db_handler:
+                     return {
+                        "success": False,
+                        "error": "데이터베이스 연결이 초기화되지 않았습니다.",
+                        "profile_id": None
+                     }
+                
                 try:
                     # UserProfile을 MongoDB 저장 형식으로 변환
-                    profile_dict = profile.dict()
+                    profile_dict = profile.model_dump()
                     profile_dict["profile_id"] = profile_id
 
                     db_save_result = self.db_handler.save_user_profile(profile_dict)
+                    
                     if not db_save_result.get("success"):
-                        print(f"⚠️ DB 저장 실패: {db_save_result.get('error')}")
+                        error_msg = db_save_result.get('error', 'DB 저장 실패')
+                        print(f"⚠️ DB 저장 실패: {error_msg}")
+                        return {
+                            "success": False,
+                            "error": f"프로필을 데이터베이스에 저장할 수 없습니다: {error_msg}",
+                            "profile_id": None
+                        }
+                        
                 except Exception as e:
                     print(f"⚠️ DB 저장 중 오류: {e}")
-                    db_save_result = {"success": False, "error": str(e)}
+                    return {
+                        "success": False,
+                        "error": f"데이터베이스 저장 중 오류가 발생했습니다: {str(e)}",
+                        "profile_id": None
+                    }
 
             # 5. 성공 응답 반환
             response = {
@@ -198,14 +225,9 @@ class Agent1:
                 "profile_id": profile_id,
                 "profile_data": profile.model_dump(),
                 "message": f"프로필이 성공적으로 생성되었습니다. (ID: {profile_id})",
-                "agent": self.agent_name
+                "agent": self.agent_name,
+                "database_saved": True
             }
-
-            # DB 저장 결과 추가
-            if db_save_result:
-                response["database_saved"] = db_save_result.get("success", False)
-                if not db_save_result.get("success"):
-                    response["database_error"] = db_save_result.get("error")
 
             return response
 

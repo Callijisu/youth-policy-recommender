@@ -178,6 +178,49 @@ class Agent2:
                 "policies": []
             }
 
+    def get_policy_by_id(self, policy_id: str) -> Dict[str, Any]:
+        """
+        특정 정책 상세 조회
+        
+        Args:
+            policy_id (str): 정책 고유 ID
+            
+        Returns:
+            Dict[str, Any]: 조회 결과
+        """
+        try:
+            if not self.db_handler:
+                return {
+                    "success": False,
+                    "error": "데이터베이스 연결이 없습니다."
+                }
+                
+            # DB에서 조회 (get_policy_by_id는 mongo_handler에 추가된 메소드로 가정하거나 직접 쿼리)
+            # mongo_handler에 get_policy_by_id가 없을 수 있으므로 직접 접근 권장 (혹은 handler에 추가)
+            print(f"DEBUG: Searching for policy_id={policy_id} in DB...")
+            collection = self.db_handler.database["policies"]
+            policy = collection.find_one({"policy_id": policy_id})
+            
+            if policy:
+                print(f"DEBUG: Found policy: {policy.get('title')}")
+                return {
+                    "success": True,
+                    "policy": policy
+                }
+            else:
+                print(f"DEBUG: Policy {policy_id} NOT FOUND in DB.")
+                # Try finding by ObjectId if passed string matches
+                return {
+                    "success": False,
+                    "error": "해당 정책을 찾을 수 없습니다."
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"정책 상세 조회 중 오류: {str(e)}"
+            }
+
     def collect_from_api(self, api_key: Optional[str] = None) -> Dict[str, Any]:
         """
         외부 API에서 정책 데이터 수집 (온통청년 API 등)
@@ -304,32 +347,11 @@ class Agent2:
             """
 
             # 현재는 더미 데이터 반환
+            # API 연동 전이므로 에러 반환
             return {
-                "policy_id": f"api_{uuid.uuid4().hex[:8]}",
-                "title": "API에서 수집된 정책",
-                "description": "온통청년 API 연동 후 실제 데이터로 대체 예정",
-                "category": "일자리",
-                "target_age_min": 18,
-                "target_age_max": 34,
-                "target_regions": ["전국"],
-                "target_employment": ["구직자"],
-                "budget_min": 0,
-                "budget_max": 1000,
-                "application_period": {
-                    "start": "2024-01-01",
-                    "end": "2024-12-31"
-                },
-                "requirements": ["API 연동 후 실제 요건 업데이트"],
-                "documents": [],
-                "contact": {
-                    "department": "온통청년",
-                    "phone": "1350",
-                    "email": "api@youthcenter.go.kr"
-                },
-                "website_url": "https://youthcenter.go.kr",
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-                "is_active": True
+                "success": False,
+                "error": "온통청년 API 연동 기능은 추후 구현 예정입니다. 현재는 데이터베이스만 사용 가능합니다.",
+                "policies": []
             }
 
         except Exception as e:
@@ -350,9 +372,17 @@ class Agent2:
             "policy_id": policy.get("policy_id", ""),
             "title": policy.get("title", ""),
             "category": policy.get("category", ""),
-            "agency": policy.get("contact", {}).get("department", ""),
-            "benefit": f"최대 {policy.get('budget_max', 0):,}만원 지원" if policy.get('budget_max') else "",
-            "deadline": policy.get("application_period", {}).get("end", "")
+            "agency": policy.get("agency", policy.get("contact", {}).get("department", "")),
+            "benefit": policy.get("benefit", f"최대 {policy.get('budget_max', 0):,}만원 지원" if policy.get('budget_max') else ""),
+            "deadline": policy.get("deadline", policy.get("application_period", {}).get("end", "")),
+            # Agent3 매칭에 필요한 필드들 추가
+            "target_age_min": policy.get("target_age_min"),
+            "target_age_max": policy.get("target_age_max"),
+            "target_regions": policy.get("target_regions", []),
+            "target_employment": policy.get("target_employment", []),
+            "target_income_max": policy.get("target_income_max"),
+            "budget_max": policy.get("budget_max"),
+            "application_url": policy.get("application_url", "")
         }
 
     def _apply_additional_filters(self, policies: List[Dict[str, Any]],

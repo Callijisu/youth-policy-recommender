@@ -72,34 +72,31 @@ class Agent3:
             "employment": 10    # 고용상태: 10점
         }
 
-    def check_age_match(self, user_age: int, policy_age_min: int, policy_age_max: int) -> Tuple[bool, float]:
-        """
-        나이 조건 매칭 검사
-
-        Args:
-            user_age (int): 사용자 나이
-            policy_age_min (int): 정책 최소 나이
-            policy_age_max (int): 정책 최대 나이
-
-        Returns:
-            Tuple[bool, float]: (매칭 여부, 점수)
-        """
+    def check_age_match(self, user_age: int, policy_age_min: Optional[int], policy_age_max: Optional[int]) -> Tuple[bool, float]:
+        """나이 조건 매칭 검사 - 0 또는 None은 제한 없음으로 처리"""
         try:
+            # 0 또는 None이면 제한 없음으로 간주
+            p_min = policy_age_min if policy_age_min and policy_age_min > 0 else 0
+            p_max = policy_age_max if policy_age_max and policy_age_max > 0 else 100
+            
+            # 둘 다 0이면 나이 제한 없음
+            if p_min == 0 and p_max == 100:
+                return True, self.condition_weights["age"]
+
             # 나이 범위 체크
-            if policy_age_min <= user_age <= policy_age_max:
-                # 나이가 정확히 가운데에 있을 때 만점, 경계에 가까울수록 점수 감소
-                age_range = policy_age_max - policy_age_min
+            if p_min <= user_age <= p_max:
+                age_range = p_max - p_min
                 if age_range == 0:
                     score = self.condition_weights["age"]
                 else:
-                    # 가운데에서 얼마나 떨어져 있는지 계산
-                    center = (policy_age_min + policy_age_max) / 2
+                    center = (p_min + p_max) / 2
                     distance_from_center = abs(user_age - center)
                     max_distance = age_range / 2
-
-                    # 거리에 따른 점수 계산 (가까울수록 높은 점수)
+                    if max_distance == 0:
+                        max_distance = 1 
+                        
                     score_ratio = 1 - (distance_from_center / max_distance)
-                    score = self.condition_weights["age"] * max(score_ratio, 0.5)  # 최소 50%는 보장
+                    score = self.condition_weights["age"] * max(score_ratio, 0.5)
 
                 return True, score
             else:
@@ -107,119 +104,124 @@ class Agent3:
 
         except Exception as e:
             print(f"⚠️ 나이 매칭 검사 오류: {e}")
-            return False, 0.0
+            return True, self.condition_weights["age"] * 0.5 # 오류시 관대하게 판정
 
-    def check_region_match(self, user_region: str, policy_regions: List[str]) -> Tuple[bool, float]:
-        """
-        지역 조건 매칭 검사
-
-        Args:
-            user_region (str): 사용자 거주 지역
-            policy_regions (List[str]): 정책 대상 지역 목록
-
-        Returns:
-            Tuple[bool, float]: (매칭 여부, 점수)
-        """
+    def check_region_match(self, user_region: str, policy_regions: Optional[List[str]]) -> Tuple[bool, float]:
+        """지역 조건 매칭 검사 - 광역시/도 레벨 매칭"""
         try:
-            # "전국"이 포함되어 있으면 무조건 매칭
-            if "전국" in policy_regions:
+            # 지역 제한 없으면 무조건 매칭
+            if not policy_regions or len(policy_regions) == 0:
                 return True, self.condition_weights["region"]
 
-            # 사용자 지역이 정책 대상 지역에 포함되는지 확인
-            if user_region in policy_regions:
-                # 대상 지역이 적을수록 더 높은 점수 (더 타겟팅된 정책)
-                region_count = len(policy_regions)
-                if region_count == 1:
-                    score = self.condition_weights["region"]
-                elif region_count <= 3:
-                    score = self.condition_weights["region"] * 0.9
-                elif region_count <= 5:
-                    score = self.condition_weights["region"] * 0.8
-                else:
-                    score = self.condition_weights["region"] * 0.7
+            # "전국" 정책은 모든 사용자에게 매칭
+            for pr in policy_regions:
+                if "전국" in pr:
+                    return True, self.condition_weights["region"]
+            
+            # 사용자 지역이 비어있으면 매칭 허용
+            if not user_region:
+                return True, self.condition_weights["region"] * 0.5
 
-                return True, score
-            else:
-                return False, 0.0
+            # 지역 정규화 함수
+            def normalize(region):
+                """광역시/도 레벨로 정규화"""
+                region = region.strip()
+                # 광역시/도 매핑
+                region_map = {
+                    "서울": "서울", "서울특별시": "서울", 
+                    "경기": "경기", "경기도": "경기",
+                    "인천": "인천", "인천광역시": "인천",
+                    "부산": "부산", "부산광역시": "부산", "부산진구": "부산", "연제구": "부산", "기장군": "부산",
+                    "대구": "대구", "대구광역시": "대구",
+                    "광주": "광주", "광주광역시": "광주",
+                    "대전": "대전", "대전광역시": "대전",
+                    "울산": "울산", "울산광역시": "울산",
+                    "세종": "세종", "세종특별자치시": "세종",
+                    "강원": "강원", "강원도": "강원", "강원특별자치도": "강원",
+                    "충북": "충북", "충청북도": "충북",
+                    "충남": "충남", "충청남도": "충남",
+                    "전북": "전북", "전라북도": "전북", "전북특별자치도": "전북",
+                    "전남": "전남", "전라남도": "전남",
+                    "경북": "경북", "경상북도": "경북",
+                    "경남": "경남", "경상남도": "경남",
+                    "제주": "제주", "제주도": "제주", "제주특별자치도": "제주"
+                }
+                
+                # 정확한 매핑 확인
+                if region in region_map:
+                    return region_map[region]
+                
+                # 부분 매칭 확인
+                for key, value in region_map.items():
+                    if key in region:
+                        return value
+                
+                return region
+
+            # 사용자 지역 정규화
+            normalized_user = normalize(user_region)
+            
+            # 정책 지역과 매칭 확인
+            for policy_region in policy_regions:
+                normalized_policy = normalize(policy_region)
+                if normalized_user == normalized_policy:
+                    region_count = len(policy_regions)
+                    if region_count == 1:
+                        score = self.condition_weights["region"]
+                    elif region_count <= 3:
+                        score = self.condition_weights["region"] * 0.9
+                    else:
+                        score = self.condition_weights["region"] * 0.8
+                    return True, score
+            
+            # 지역 불일치
+            return False, 0.0
 
         except Exception as e:
             print(f"⚠️ 지역 매칭 검사 오류: {e}")
-            return False, 0.0
+            return True, self.condition_weights["region"] * 0.5
 
     def check_income_match(self, user_income: int, policy_income_max: Optional[int]) -> Tuple[bool, float]:
-        """
-        소득 조건 매칭 검사
-
-        Args:
-            user_income (int): 사용자 연 소득 (만원)
-            policy_income_max (Optional[int]): 정책 최대 소득 제한 (만원)
-
-        Returns:
-            Tuple[bool, float]: (매칭 여부, 점수)
-        """
+        """소득 조건 매칭 검사"""
         try:
-            # 소득 제한이 없는 경우 (None 또는 0)
+            # 소득 제한이 없는 경우
             if policy_income_max is None or policy_income_max == 0:
                 return True, self.condition_weights["income"]
 
-            # 사용자 소득이 정책 제한 내에 있는지 확인
             if user_income <= policy_income_max:
-                # 여유분이 많을수록 높은 점수
                 income_ratio = user_income / policy_income_max
-
                 if income_ratio <= 0.5:
-                    # 제한의 50% 이하 → 만점
                     score = self.condition_weights["income"]
-                elif income_ratio <= 0.7:
-                    # 제한의 70% 이하 → 90%
-                    score = self.condition_weights["income"] * 0.9
                 elif income_ratio <= 0.9:
-                    # 제한의 90% 이하 → 80%
-                    score = self.condition_weights["income"] * 0.8
+                    score = self.condition_weights["income"] * 0.9
                 else:
-                    # 제한에 가까움 → 70%
-                    score = self.condition_weights["income"] * 0.7
-
+                    score = self.condition_weights["income"] * 0.8
                 return True, score
             else:
                 return False, 0.0
 
         except Exception as e:
-            print(f"⚠️ 소득 매칭 검사 오류: {e}")
-            return False, 0.0
+             return True, self.condition_weights["income"] * 0.5
 
-    def check_employment_match(self, user_employment: str, policy_employment: List[str]) -> Tuple[bool, float]:
-        """
-        고용 상태 조건 매칭 검사
-
-        Args:
-            user_employment (str): 사용자 고용 상태
-            policy_employment (List[str]): 정책 대상 고용 상태 목록
-
-        Returns:
-            Tuple[bool, float]: (매칭 여부, 점수)
-        """
+    def check_employment_match(self, user_employment: str, policy_employment: Optional[List[str]]) -> Tuple[bool, float]:
+        """고용 상태 조건 매칭 검사"""
         try:
-            # 고용 상태가 정책 대상에 포함되는지 확인
+            # 고용 상태 제한 없으면 매칭
+            if not policy_employment or len(policy_employment) == 0:
+                return True, self.condition_weights["employment"]
+
             if user_employment in policy_employment:
-                # 대상 고용상태가 적을수록 더 높은 점수 (더 타겟팅된 정책)
                 employment_count = len(policy_employment)
                 if employment_count == 1:
                     score = self.condition_weights["employment"]
-                elif employment_count <= 2:
-                    score = self.condition_weights["employment"] * 0.9
-                elif employment_count <= 3:
-                    score = self.condition_weights["employment"] * 0.8
                 else:
-                    score = self.condition_weights["employment"] * 0.7
-
+                    score = self.condition_weights["employment"] * 0.9
                 return True, score
             else:
                 return False, 0.0
 
         except Exception as e:
-            print(f"⚠️ 고용상태 매칭 검사 오류: {e}")
-            return False, 0.0
+            return True, self.condition_weights["employment"] * 0.5
 
     def calculate_benefit_score(self, benefit: str, budget_max: Optional[int] = None) -> float:
         """
@@ -390,6 +392,72 @@ class Agent3:
         except:
             return False
 
+    def _is_deadline_expired(self, deadline: str) -> bool:
+        """
+        마감일이 지났는지 확인
+        
+        Args:
+            deadline (str): 마감일 문자열 (다양한 형식)
+            
+        Returns:
+            bool: 마감일 경과 여부 (True면 마감됨)
+        """
+        if not deadline:
+            return False
+        
+        deadline_lower = deadline.lower().strip()
+        
+        # 상시 모집/수시 모집은 마감 아님
+        ongoing_keywords = ['상시', '수시', '연중', '계속', '예산 소진시', '예산소진시', '예산소진시까지']
+        for keyword in ongoing_keywords:
+            if keyword in deadline_lower:
+                return False
+        
+        try:
+            now = datetime.now()
+            
+            # 다양한 날짜 형식 파싱 시도
+            # 1. YYYY.MM.DD 또는 YYYY-MM-DD 또는 YYYY/MM/DD
+            import re
+            date_patterns = [
+                r'(\d{4})[-./](\d{1,2})[-./](\d{1,2})',  # 2025-01-31, 2025.01.31
+                r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',  # 2025년 1월 31일
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, deadline)
+                if match:
+                    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                    deadline_date = datetime(year, month, day)
+                    return deadline_date < now
+            
+            # 2. 연도와 월만 있는 경우 (2025년 1월 말)
+            month_pattern = r'(\d{4})년?\s*(\d{1,2})월'
+            match = re.search(month_pattern, deadline)
+            if match:
+                year, month = int(match.group(1)), int(match.group(2))
+                # 해당 월의 마지막 날로 간주
+                if month == 12:
+                    deadline_date = datetime(year + 1, 1, 1)
+                else:
+                    deadline_date = datetime(year, month + 1, 1)
+                return deadline_date < now
+            
+            # 3. 연도만 있는 경우 (2024년)
+            year_pattern = r'(\d{4})년'
+            match = re.search(year_pattern, deadline)
+            if match:
+                year = int(match.group(1))
+                # 해당 연도 말까지로 간주
+                deadline_date = datetime(year + 1, 1, 1)
+                return deadline_date < now
+                
+        except Exception as e:
+            # 파싱 실패 시 마감 아닌 것으로 처리 (정책 제외 방지)
+            return False
+        
+        return False
+
     def calculate_score(self, user_profile: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[float, List[str]]:
         """
         사용자 프로필과 정책 간 총 매칭 점수 계산
@@ -404,26 +472,32 @@ class Agent3:
         try:
             total_score = 0.0
             match_reasons = []
+            
+            # 0. 마감일 체크 - 마감된 정책은 점수 0 반환
+            deadline = policy.get("deadline", "")
+            if self._is_deadline_expired(deadline):
+                return (0.0, ["❌ 신청 마감됨"])
 
             # 1. 조건 일치도 점수 (40점)
             condition_score = 0.0
 
-            # 나이 조건 체크
+            # 나이 조건 체크 - 엄격한 필터링
             age_match, age_score = self.check_age_match(
                 user_profile.get("age", 0),
-                policy.get("target_age_min", 0),
-                policy.get("target_age_max", 100)
+                policy.get("target_age_min"),
+                policy.get("target_age_max")
             )
 
             if age_match:
                 condition_score += age_score
                 match_reasons.append(
-                    f"나이 조건 부합 ({policy.get('target_age_min')}-{policy.get('target_age_max')}세)"
+                    f"나이 조건 부합 ({policy.get('target_age_min') or '제한없음'}-{policy.get('target_age_max') or '제한없음'}세)"
                 )
             else:
-                return 0.0, ["나이 조건 불일치"]  # 나이가 안 맞으면 0점
+                return 0.0, ["나이 조건 불일치"]  # 나이 안 맞으면 제외
 
-            # 지역 조건 체크
+
+            # 지역 조건 체크 - 엄격한 필터링
             region_match, region_score = self.check_region_match(
                 user_profile.get("region", ""),
                 policy.get("target_regions", [])
@@ -431,8 +505,10 @@ class Agent3:
 
             if region_match:
                 condition_score += region_score
-                regions_str = ", ".join(policy.get("target_regions", []))
+                regions_str = ", ".join(policy.get("target_regions", []) or ["전국"])
                 match_reasons.append(f"지역 조건 부합 ({regions_str})")
+            else:
+                return 0.0, ["지역 조건 불일치"]  # 지역 안 맞으면 제외
 
             # 소득 조건 체크
             income_match, income_score = self.check_income_match(

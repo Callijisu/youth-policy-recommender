@@ -5,6 +5,11 @@ MongoDB 데이터베이스 핸들러
 
 import os
 import uuid
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Union
 from pymongo import MongoClient, DESCENDING
@@ -128,7 +133,7 @@ class MongoDBHandler:
             Dict[str, Any]: 연결 상태 정보
         """
         try:
-            if not self.client or not self.is_connected:
+            if self.client is None or not self.is_connected:
                 return {
                     "connected": False,
                     "error": "MongoDB 클라이언트가 초기화되지 않았습니다."
@@ -167,7 +172,7 @@ class MongoDBHandler:
         Raises:
             RuntimeError: 데이터베이스에 연결되지 않은 경우
         """
-        if not self.is_connected or not self.database:
+        if not self.is_connected or self.database is None:
             raise RuntimeError("MongoDB에 연결되지 않았습니다.")
 
         return self.database[self.collections.get(collection_name, collection_name)]
@@ -363,12 +368,13 @@ class MongoDBHandler:
                 "error": f"정책 일괄 저장 중 오류가 발생했습니다: {str(e)}"
             }
 
-    def get_all_policies(self, active_only: bool = True) -> Dict[str, Any]:
+    def get_all_policies(self, active_only: bool = True, limit: int = 2000) -> Dict[str, Any]:
         """
         전체 정책 조회
 
         Args:
             active_only (bool): 활성 정책만 조회할지 여부
+            limit (int): 최대 조회 개수 (기본 2000)
 
         Returns:
             Dict[str, Any]: 조회 결과
@@ -377,7 +383,7 @@ class MongoDBHandler:
             collection = self.get_collection("policies")
 
             query = {"is_active": True} if active_only else {}
-            policies = list(collection.find(query).sort("created_at", DESCENDING))
+            policies = list(collection.find(query).sort("created_at", DESCENDING).limit(limit))
 
             # ObjectId를 문자열로 변환
             for policy in policies:

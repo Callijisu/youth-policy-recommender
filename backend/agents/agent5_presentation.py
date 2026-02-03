@@ -137,21 +137,26 @@ class Agent5:
             "일자리": "고용노동부"
         }
 
+        # 1. 정책 정보에 있는 주관 기관 우선 사용
+        explicit_agency = policy.get("agency")
+        if explicit_agency and explicit_agency != "관련 기관" and explicit_agency.strip():
+            return explicit_agency
+
         title = policy.get("title", "")
         category = policy.get("category", "")
 
-        # 정책명에서 기관 추출
+        # 2. 정책명에서 기관 추출 (매핑)
         for keyword, agency in agency_mapping.items():
             if keyword in title:
                 return agency
 
-        # 카테고리에서 기관 추출
+        # 3. 카테고리에서 기관 추출 (매핑)
         for keyword, agency in agency_mapping.items():
             if keyword in category:
                 return agency
 
-        # 기본값
-        return policy.get("agency", "관련 기관")
+        # 4. 기본값
+        return "관련 기관"
 
     def _analyze_deadline_status(self, deadline: Optional[str]) -> str:
         """마감일 상태 분석"""

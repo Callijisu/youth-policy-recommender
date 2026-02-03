@@ -47,7 +47,14 @@ class Settings(BaseSettings):
 
     # === CORS 설정 ===
     cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        default=[
+            "http://localhost:3000", 
+            "http://127.0.0.1:3000",
+            "http://localhost:5173", 
+            "http://127.0.0.1:5173",
+            "http://localhost:5174", 
+            "http://127.0.0.1:5174"
+        ],
         description="허용된 CORS 오리진"
     )
     cors_allow_credentials: bool = Field(default=True, description="CORS 인증 정보 허용")

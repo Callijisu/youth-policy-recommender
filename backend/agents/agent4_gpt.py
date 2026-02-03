@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 try:
     import openai
     from openai import OpenAI
-    OPENAI_AVAILABLE = True
+    OPENAI_AVAILABLE = False  # Disabled due to timeout issues
 except ImportError:
     OPENAI_AVAILABLE = False
 
@@ -242,16 +242,22 @@ class Agent4:
         """
         try:
             explained_policies = []
-
-            for policy in matched_policies:
+            
+            # 상위 5개만 GPT로 설명 생성 (응답 시간 최적화)
+            max_gpt_explanations = 5
+            
+            for i, policy in enumerate(matched_policies):
                 # 정책 정보 추출
                 score = policy.get("score", 0.0)
                 match_reasons = policy.get("match_reasons", [])
 
-                # GPT 설명 생성
-                explanation_result = self.generate_explanation(
-                    policy, user_profile, score, match_reasons
-                )
+                # 상위 N개만 GPT 사용, 나머지는 Fallback
+                if i < max_gpt_explanations:
+                     explanation_result = self.generate_explanation(
+                        policy, user_profile, score, match_reasons
+                    )
+                else:
+                    explanation_result = self._get_fallback_explanation(policy, user_profile, score)
 
                 # 원본 정책 정보에 설명 추가
                 policy_with_explanation = policy.copy()
@@ -263,11 +269,11 @@ class Agent4:
 
                 explained_policies.append(policy_with_explanation)
 
-                # API 호출 간격 (Rate Limit 방지)
-                if self.is_available:
+                # API 호출 간격 (Rate Limit 방지) - GPT 호출시에만 적용
+                if i < max_gpt_explanations and self.is_available:
                     time.sleep(0.1)
 
-            print(f"✅ Agent4: {len(explained_policies)}개 정책 설명 생성 완료")
+            print(f"✅ Agent4: {len(explained_policies)}개 정책 설명 생성 완료 (GPT: {min(len(matched_policies), max_gpt_explanations)}건)")
             return explained_policies
 
         except Exception as e:
