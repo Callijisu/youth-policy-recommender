@@ -5,6 +5,7 @@ Multi-Agent 협업 기반 청년 맞춤형 정책자금 추천 시스템
 
 import os
 import time
+import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Path, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -713,20 +714,24 @@ async def match_policies(request: MatchRequest):
         # DB에서 조회된 정책을 Agent3용 형식으로 변환
         policies_data = []
         for policy in policies_result.get("policies", []):
-            # Agent2의 PolicySummary를 Agent3용 정책 데이터로 변환
+            # Agent2의 PolicySummary를 Agent3용 정책 데이터로 변환하되 실제 조건 정보 활용
             policy_data = {
                 "policy_id": policy.get("policy_id"),
                 "title": policy.get("title"),
                 "category": policy.get("category"),
-                "target_age_min": 18,  # 기본값 (실제로는 DB에서 가져와야 함)
-                "target_age_max": 39,  # 기본값
-                "target_regions": ["전국"],  # 기본값
-                "target_employment": ["구직자", "재직자"],  # 기본값
-                "target_income_max": None,  # 제한 없음
+                # 실제 정책 조건 정보 사용 (없으면 기본값)
+                "target_age_min": policy.get("target_age_min", 18),
+                "target_age_max": policy.get("target_age_max", 39),
+                "target_regions": policy.get("target_regions", ["전국"]),
+                "target_employment": policy.get("target_employment", ["구직자", "재직자", "학생", "자영업"]),
+                "target_income_max": policy.get("target_income_max"),
                 "benefit": policy.get("benefit", ""),
-                "budget_max": None,
+                "budget_max": policy.get("budget_max"),
                 "deadline": policy.get("deadline"),
-                "application_url": ""
+                "application_url": policy.get("application_url", ""),
+                # 추가 조건들도 포함
+                "requirements": policy.get("requirements", []),
+                "website_url": policy.get("website_url", "")
             }
             policies_data.append(policy_data)
 

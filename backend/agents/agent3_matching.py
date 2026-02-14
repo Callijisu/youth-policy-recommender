@@ -57,19 +57,43 @@ class Agent3:
         self.agent_name = "Policy Matching Agent"
         self.agent_version = "1.0.0"
 
-        # 점수 배점 설정
+        # 점수 배점 설정 - 더 차별화
         self.score_weights = {
-            "condition_match": 40,      # 조건 일치도: 40점
-            "benefit_size": 30,         # 혜택 크기: 30점
-            "ease_of_application": 30   # 신청 용이성: 30점
+            "condition_match": 50,      # 조건 일치도: 50점
+            "benefit_size": 25,         # 혜택 크기: 25점
+            "ease_of_application": 25   # 신청 용이성: 25점
         }
 
-        # 조건별 세부 배점
+        # 조건별 세부 배점 - 더 차별화
         self.condition_weights = {
-            "age": 10,          # 나이: 10점
-            "region": 10,       # 지역: 10점
-            "income": 10,       # 소득: 10점
-            "employment": 10    # 고용상태: 10점
+            "age": 12,          # 나이: 12점
+            "region": 8,        # 지역: 8점
+            "income": 15,       # 소득: 15점
+            "employment": 15    # 고용상태: 15점
+        }
+
+        # 고용상태별 추가 점수 매핑
+        self.employment_bonus = {
+            "구직자": {
+                "일자리": 15,
+                "교육": 10,
+                "복지": 5
+            },
+            "재직자": {
+                "주거": 15,
+                "금융": 10,
+                "교육": 5
+            },
+            "학생": {
+                "교육": 15,
+                "일자리": 10,
+                "복지": 5
+            },
+            "자영업": {
+                "창업": 15,
+                "금융": 10,
+                "일자리": 5
+            }
         }
 
     def check_age_match(self, user_age: int, policy_age_min: Optional[int], policy_age_max: Optional[int]) -> Tuple[bool, float]:
@@ -163,6 +187,10 @@ class Agent3:
             
             # 정책 지역과 매칭 확인
             for policy_region in policy_regions:
+                # "전국"인 경우 모든 지역 매칭
+                if policy_region.strip() in ["전국", "전체", "전 지역"]:
+                    return True, self.condition_weights["region"]
+
                 normalized_policy = normalize(policy_region)
                 if normalized_user == normalized_policy:
                     region_count = len(policy_regions)
@@ -247,23 +275,35 @@ class Agent3:
             if amount == 0:
                 return max_score * 0.3  # 금액 정보 없으면 30%
 
-            # 금액에 따른 점수 계산
-            if amount >= 3000:      # 3000만원 이상
+            # 금액에 따른 점수 계산 - 더 세분화
+            if amount >= 10000:     # 1억원 이상
                 return max_score
-            elif amount >= 2000:    # 2000만원 이상
+            elif amount >= 5000:    # 5000만원 이상
+                return max_score * 0.95
+            elif amount >= 3000:    # 3000만원 이상
                 return max_score * 0.9
-            elif amount >= 1000:    # 1000만원 이상
+            elif amount >= 2000:    # 2000만원 이상
+                return max_score * 0.85
+            elif amount >= 1500:    # 1500만원 이상
                 return max_score * 0.8
-            elif amount >= 500:     # 500만원 이상
+            elif amount >= 1000:    # 1000만원 이상
+                return max_score * 0.75
+            elif amount >= 600:     # 600만원 이상
                 return max_score * 0.7
+            elif amount >= 300:     # 300만원 이상
+                return max_score * 0.65
             elif amount >= 200:     # 200만원 이상
                 return max_score * 0.6
-            elif amount >= 100:     # 100만원 이상
+            elif amount >= 120:     # 120만원 이상
+                return max_score * 0.55
+            elif amount >= 60:      # 60만원 이상
                 return max_score * 0.5
-            elif amount >= 50:      # 50만원 이상
+            elif amount >= 30:      # 30만원 이상
+                return max_score * 0.45
+            elif amount >= 10:      # 10만원 이상
                 return max_score * 0.4
             else:
-                return max_score * 0.3
+                return max_score * 0.2
 
         except Exception as e:
             print(f"⚠️ 혜택 점수 계산 오류: {e}")
@@ -334,18 +374,8 @@ class Agent3:
             # 2. 마감일 여유도 (10점)
             deadline = policy.get("deadline", "")
             if deadline:
-                if any(word in deadline for word in ["상시", "연중", "수시"]):
-                    # 상시 접수 → 만점
-                    total_score += max_score / 3
-                elif self._is_deadline_far(deadline):
-                    # 마감일이 6개월 이상 남음 → 80%
-                    total_score += (max_score / 3) * 0.8
-                elif self._is_deadline_soon(deadline):
-                    # 마감일이 가까움 → 40%
-                    total_score += (max_score / 3) * 0.4
-                else:
-                    # 기타 → 60%
-                    total_score += (max_score / 3) * 0.6
+                # 마감일 종류에 관계없이 동일한 점수 (편향 제거)
+                total_score += max_score / 3
 
             # 3. 신청 요건 복잡도 (10점)
             requirements = policy.get("requirements", [])
@@ -481,7 +511,7 @@ class Agent3:
             # 1. 조건 일치도 점수 (40점)
             condition_score = 0.0
 
-            # 나이 조건 체크 - 엄격한 필터링
+            # 나이 조건 체크 - 엄격한 매칭
             age_match, age_score = self.check_age_match(
                 user_profile.get("age", 0),
                 policy.get("target_age_min"),
@@ -494,10 +524,11 @@ class Agent3:
                     f"나이 조건 부합 ({policy.get('target_age_min') or '제한없음'}-{policy.get('target_age_max') or '제한없음'}세)"
                 )
             else:
-                return 0.0, ["나이 조건 불일치"]  # 나이 안 맞으면 제외
+                # 나이 조건 미달시 큰 감점
+                condition_score -= 30
+                match_reasons.append("나이 조건 미달")
 
-
-            # 지역 조건 체크 - 엄격한 필터링
+            # 지역 조건 체크 - 유연한 매칭
             region_match, region_score = self.check_region_match(
                 user_profile.get("region", ""),
                 policy.get("target_regions", [])
@@ -508,7 +539,9 @@ class Agent3:
                 regions_str = ", ".join(policy.get("target_regions", []) or ["전국"])
                 match_reasons.append(f"지역 조건 부합 ({regions_str})")
             else:
-                return 0.0, ["지역 조건 불일치"]  # 지역 안 맞으면 제외
+                # 지역이 안 맞아도 부분 점수 부여 (타 지역 거주자도 일부 정책 신청 가능)
+                condition_score += self.condition_weights["region"] * 0.2
+                match_reasons.append("지역 외 신청 가능")
 
             # 소득 조건 체크
             income_match, income_score = self.check_income_match(
@@ -533,6 +566,10 @@ class Agent3:
                 condition_score += employment_score
                 employment_str = ", ".join(policy.get("target_employment", []))
                 match_reasons.append(f"고용 상태 적합 ({employment_str})")
+            else:
+                # 고용상태 미달시 큰 감점
+                condition_score -= 25
+                match_reasons.append("고용 상태 부적합")
 
             total_score += condition_score
 
@@ -557,14 +594,27 @@ class Agent3:
             elif ease_score > 15:
                 match_reasons.append("신청 절차 보통")
 
-            return round(total_score, 1), match_reasons
+            # 4. 개인화 보너스 점수 (고용상태 + 관심분야 매칭)
+            personalization_bonus = self._calculate_personalization_bonus(
+                user_profile, policy
+            )
+            total_score += personalization_bonus
+
+            if personalization_bonus > 10:
+                match_reasons.append("개인 맞춤형 정책")
+            elif personalization_bonus > 5:
+                match_reasons.append("관련성 높음")
+
+            # 총 점수를 100점으로 제한
+            final_score = min(round(total_score, 1), 100.0)
+            return final_score, match_reasons
 
         except Exception as e:
             print(f"⚠️ 점수 계산 오류: {e}")
             return 0.0, [f"점수 계산 중 오류 발생: {str(e)}"]
 
     def match_policies(self, user_profile: Dict[str, Any], policies: List[Dict[str, Any]],
-                      min_score: float = 40.0, max_results: int = 10) -> List[MatchingResult]:
+                      min_score: float = 30.0, max_results: int = 20) -> List[MatchingResult]:
         """
         사용자 프로필에 맞는 정책들을 매칭하고 점수순으로 정렬
 
@@ -660,6 +710,87 @@ class Agent3:
                 "avg_score": 0.0,
                 "recommendations": []
             }
+
+    def _calculate_personalization_bonus(self, user_profile: Dict[str, Any], policy: Dict[str, Any]) -> float:
+        """
+        개인화 보너스 점수 계산 (고용상태와 관심분야 기반)
+
+        Args:
+            user_profile (Dict[str, Any]): 사용자 프로필
+            policy (Dict[str, Any]): 정책 정보
+
+        Returns:
+            float: 개인화 보너스 점수 (0-20점)
+        """
+        try:
+            bonus_score = 0.0
+            user_employment = user_profile.get("employment", "")
+            user_interest = user_profile.get("interest", "")
+            policy_category = policy.get("category", "")
+
+            # 1. 고용상태별 카테고리 보너스 (최대 15점)
+            if user_employment in self.employment_bonus:
+                category_bonuses = self.employment_bonus[user_employment]
+                if policy_category in category_bonuses:
+                    bonus_score += category_bonuses[policy_category]
+
+            # 2. 관심분야 직접 매칭 보너스 (최대 10점)
+            if user_interest and policy_category:
+                # 관심분야와 정책 카테고리 매칭
+                interest_category_map = {
+                    "일자리": "일자리",
+                    "취업": "일자리",
+                    "구직": "일자리",
+                    "주거": "주거",
+                    "집": "주거",
+                    "금융": "금융",
+                    "대출": "금융",
+                    "적금": "금융",
+                    "창업": "창업",
+                    "사업": "창업",
+                    "복지": "복지",
+                    "지원": "복지",
+                    "교육": "교육",
+                    "배움": "교육",
+                    "훈련": "교육"
+                }
+
+                # 사용자 관심사를 표준 카테고리로 변환
+                normalized_interest = None
+                for key, value in interest_category_map.items():
+                    if key in user_interest.lower():
+                        normalized_interest = value
+                        break
+
+                if normalized_interest and normalized_interest == policy_category:
+                    bonus_score += 10
+                elif normalized_interest and policy_category:
+                    # 부분 매칭 (관련 분야)
+                    related_categories = {
+                        "일자리": ["교육", "복지"],
+                        "주거": ["금융", "복지"],
+                        "금융": ["주거", "창업"],
+                        "창업": ["금융", "교육"],
+                        "복지": ["일자리", "주거"],
+                        "교육": ["일자리", "창업"]
+                    }
+                    if normalized_interest in related_categories and policy_category in related_categories[normalized_interest]:
+                        bonus_score += 5
+
+            # 3. 소득 수준별 정책 적합성 보너스 (최대 5점)
+            user_income = user_profile.get("income", 0)
+            if policy_category == "금융" and user_income < 3000:  # 저소득층 금융지원
+                bonus_score += 5
+            elif policy_category == "주거" and user_income < 5000:  # 중저소득층 주거지원
+                bonus_score += 5
+            elif policy_category == "창업" and user_income < 4000:  # 창업자금 지원
+                bonus_score += 5
+
+            return min(bonus_score, 20.0)  # 최대 20점으로 제한
+
+        except Exception as e:
+            print(f"⚠️ 개인화 보너스 계산 오류: {e}")
+            return 0.0
 
     def _get_user_profile_summary(self, user_profile: Dict[str, Any]) -> str:
         """사용자 프로필 요약 문자열 생성"""

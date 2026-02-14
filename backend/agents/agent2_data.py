@@ -375,14 +375,16 @@ class Agent2:
             "agency": policy.get("agency", policy.get("contact", {}).get("department", "")),
             "benefit": policy.get("benefit", f"최대 {policy.get('budget_max', 0):,}만원 지원" if policy.get('budget_max') else ""),
             "deadline": policy.get("deadline", policy.get("application_period", {}).get("end", "")),
-            # Agent3 매칭에 필요한 필드들 추가
-            "target_age_min": policy.get("target_age_min"),
-            "target_age_max": policy.get("target_age_max"),
-            "target_regions": policy.get("target_regions", []),
+            # Agent3 매칭에 필요한 필드들 추가 및 변환
+            "target_age_min": self._parse_age_min(policy.get("target_age_min") or policy.get("target_age", "")),
+            "target_age_max": self._parse_age_max(policy.get("target_age_max") or policy.get("target_age", "")),
+            "target_regions": policy.get("target_regions") or policy.get("target_region", []),
             "target_employment": policy.get("target_employment", []),
             "target_income_max": policy.get("target_income_max"),
             "budget_max": policy.get("budget_max"),
-            "application_url": policy.get("application_url", "")
+            "application_url": policy.get("application_url", ""),
+            "requirements": policy.get("requirements", []),
+            "website_url": policy.get("website_url", "")
         }
 
     def _apply_additional_filters(self, policies: List[Dict[str, Any]],
@@ -420,14 +422,92 @@ class Agent2:
                 if filter_conditions.employment not in target_employment:
                     continue
 
-            # 소득 조건 확인 (추후 확장 가능)
+            # 소득 조건 확인
             if filter_conditions.income is not None:
-                # TODO: 소득 조건 필터링 로직 추가
-                pass
+                target_income_max = policy.get("target_income_max")
+                if target_income_max is not None:
+                    if filter_conditions.income > target_income_max:
+                        continue
+
+            # 마감일 및 활성 상태 확인 (활성 정책만 조회시)
+            if filter_conditions.active_only:
+                # 활성 상태가 명시적으로 False인 경우 제외
+                if policy.get("is_active") == False:
+                    continue
+
+                deadline = policy.get("deadline", "")
+                if self._is_deadline_expired(deadline):
+                    continue
 
             filtered_policies.append(policy)
 
         return filtered_policies
+
+    def _is_deadline_expired(self, deadline: str) -> bool:
+        """
+        마감일이 지났는지 확인
+
+        Args:
+            deadline (str): 마감일 문자열 (다양한 형식)
+
+        Returns:
+            bool: 마감일 경과 여부 (True면 마감됨)
+        """
+        if not deadline:
+            return False
+
+        deadline_lower = deadline.lower().strip()
+
+        # 상시 모집/수시 모집은 마감 아님
+        ongoing_keywords = ['상시', '수시', '연중', '계속', '예산 소진시', '예산소진시', '예산소진시까지']
+        for keyword in ongoing_keywords:
+            if keyword in deadline_lower:
+                return False
+
+        try:
+            now = datetime.now()
+
+            # 다양한 날짜 형식 파싱 시도
+            # 1. YYYY.MM.DD 또는 YYYY-MM-DD 또는 YYYY/MM/DD
+            import re
+            date_patterns = [
+                r'(\d{4})[-./](\d{1,2})[-./](\d{1,2})',  # 2025-01-31, 2025.01.31
+                r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',  # 2025년 1월 31일
+            ]
+
+            for pattern in date_patterns:
+                match = re.search(pattern, deadline)
+                if match:
+                    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                    deadline_date = datetime(year, month, day)
+                    return deadline_date < now
+
+            # 2. 연도와 월만 있는 경우 (2025년 1월 말)
+            month_pattern = r'(\d{4})년?\s*(\d{1,2})월'
+            match = re.search(month_pattern, deadline)
+            if match:
+                year, month = int(match.group(1)), int(match.group(2))
+                # 해당 월의 마지막 날로 간주
+                if month == 12:
+                    deadline_date = datetime(year + 1, 1, 1)
+                else:
+                    deadline_date = datetime(year, month + 1, 1)
+                return deadline_date < now
+
+            # 3. 연도만 있는 경우 (2024년)
+            year_pattern = r'(\d{4})년'
+            match = re.search(year_pattern, deadline)
+            if match:
+                year = int(match.group(1))
+                # 해당 연도 말까지로 간주
+                deadline_date = datetime(year + 1, 1, 1)
+                return deadline_date < now
+
+        except Exception as e:
+            # 파싱 실패 시 마감 아닌 것으로 처리 (정책 제외 방지)
+            return False
+
+        return False
 
     def get_policy_categories(self) -> Dict[str, Any]:
         """
@@ -503,6 +583,76 @@ class Agent2:
                 "connected": False,
                 "error": f"상태 확인 중 오류: {str(e)}"
             }
+
+    def _parse_age_min(self, age_input) -> Optional[int]:
+        """
+        나이 정보에서 최소 나이 추출
+        예: "15-34세" -> 15, 15 -> 15
+        """
+        if age_input is None:
+            return None
+
+        # 이미 정수인 경우
+        if isinstance(age_input, int):
+            return age_input
+
+        # 문자열인 경우 파싱
+        age_string = str(age_input)
+        if not age_string:
+            return None
+
+        import re
+        # "15-34세", "15~34세" 패턴
+        range_match = re.search(r'(\d+)[-~](\d+)', age_string)
+        if range_match:
+            return int(range_match.group(1))
+
+        # "만 19세 이상", "19세 이상" 패턴
+        min_match = re.search(r'(?:만\s*)?(\d+)세?\s*이상', age_string)
+        if min_match:
+            return int(min_match.group(1))
+
+        # 단순 숫자 패턴
+        number_match = re.search(r'(\d+)', age_string)
+        if number_match:
+            return int(number_match.group(1))
+
+        return None
+
+    def _parse_age_max(self, age_input) -> Optional[int]:
+        """
+        나이 정보에서 최대 나이 추출
+        예: "15-34세" -> 34, 34 -> 34
+        """
+        if age_input is None:
+            return None
+
+        # 이미 정수인 경우
+        if isinstance(age_input, int):
+            return age_input
+
+        # 문자열인 경우 파싱
+        age_string = str(age_input)
+        if not age_string:
+            return None
+
+        import re
+        # "15-34세", "15~34세" 패턴
+        range_match = re.search(r'(\d+)[-~](\d+)', age_string)
+        if range_match:
+            return int(range_match.group(2))
+
+        # "만 35세 미만", "35세 미만" 패턴
+        max_match = re.search(r'(?:만\s*)?(\d+)세?\s*미만', age_string)
+        if max_match:
+            return int(max_match.group(1)) - 1
+
+        # "만 34세 이하", "34세 이하" 패턴
+        under_match = re.search(r'(?:만\s*)?(\d+)세?\s*이하', age_string)
+        if under_match:
+            return int(under_match.group(1))
+
+        return None
 
 
 # 테스트 코드

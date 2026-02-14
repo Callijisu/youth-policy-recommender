@@ -21,14 +21,24 @@ const verifyProfileApi = async (profileData) => {
     '단기근로': '구직자' // 단기근로자는 보통 구직 지원 대상에 포함됨
   };
 
+  // 관심사 매핑 추가
+  const interestMap = {
+    '취업/일자리': '일자리',
+    '주거지원': '주거',
+    '창업지원': '창업',
+    '금융지원': '금융',
+    '교육/훈련': '교육',
+    '복지혜택': '복지'
+  };
+
   const requestBody = {
     age: realAge,
     region: profileData.region,
     income: incomeVal,
     employment: employmentMap[profileData.status] || "구직자", // 매핑되지 않은 값은 기본값 '구직자'
-    interest: null, // 관심사는 선택사항 (Backend accepts null)
-    min_score: 40.0,
-    max_results: 20
+    interest: interestMap[profileData.interest] || profileData.interest || null, // 관심사 매핑 적용
+    min_score: 30.0, // 최소 점수를 30점으로 낮춰서 더 많은 정책 추천
+    max_results: 20 // 결과 수를 늘려서 다양한 정책 제시
   };
 
   console.log("🚀 [API 요청] 매칭 시작:", requestBody);
